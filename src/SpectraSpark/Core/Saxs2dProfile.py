@@ -1,9 +1,8 @@
-"""module for 2D SAXS profile"""
-
 import numpy as np
 import cv2
 import os
-import util
+
+from .. import util
 
 
 _logger = util.getLogger(__name__, level=util.DEBUG)
