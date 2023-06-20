@@ -5,9 +5,9 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 
-from .. import util
+from ..util import logger
 
-_logger = util.getLogger(__name__, util.DEBUG)
+_logger = logger.getLogger(__name__, logger.DEBUG)
 
 TMPDIR = "tmp/"
 

@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name="SpectraSpark",
-    version="0.0.1.dev1",
+    version="0.0.1.dev2",
     description="Saxs 2D profile analysis python APIs and GUI",
     url="https://github.com/jun-oishi/SpectraSpark",
     author="J. Oishi",
@@ -21,5 +21,5 @@ setup(
     py_modules=["SpectraSpark.Saxs2dProfile"],
     install_requires=["numpy", "matplotlib", "opencv-python", "PySimpleGUI"],
     python_requires=">=3.10, <4",
-    entry_points={"console_scripts": ["spectra-spark=SpectraSpark.GUI.main:main"]},
+    entry_points={"console_scripts": ["spectra-spark=SpectraSpark.__main__:main"]},
 )

@@ -2,10 +2,12 @@ import numpy as np
 import cv2
 import os
 
-from .. import util
+print(__package__)
+
+from ..util import logger
 
 
-_logger = util.getLogger(__name__, level=util.DEBUG)
+_logger = logger.getLogger(__name__, level=logger.DEBUG)
 
 
 class _Masks(np.ndarray):
