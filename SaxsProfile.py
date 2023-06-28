@@ -4,9 +4,10 @@ import numpy as np
 import cv2
 import os
 import util
-
+from typing import Callable
 
 _logger = util.getLogger(__name__, level=util.DEBUG)
+# _logger = util.getLogger(__name__, level=util.WARNING)
 
 
 class _Masks(np.ndarray):
@@ -324,15 +325,15 @@ class Saxs2dProfile:
         self.__buf = cv2.applyColorMap(self.__buf, cmap)
         return
 
-    def auto_mask_invalid(self) -> None:
+    def auto_mask_invalid(self, thresh: float = 0) -> None:
         """add mask for invalid pixels to self.__masks
         for data from pilatus sensor, negative values means invalid pixels
         """
-        self.__masks.append(self.__raw >= 0)  # nan=>0, otherwise=>1
+        self.__masks.append(self.__raw >= thresh)  # nan=>0, otherwise=>1
         return
 
-    def detect_center(self) -> tuple[float, float]:
-        """detect center and set to self.__center
+    def findcenter(self) -> tuple[float, float]:
+        """find center and set to self.__center
         detect center by cv2.HoughCircles
         if no circle is detected, no error raised and self.__center is not updated
 
@@ -358,6 +359,8 @@ class Saxs2dProfile:
         if circles is None:
             _logger.info("no circle detected")
         else:
+            for circle in circles[0, :]:
+                _logger.debug(f"center: {circle[0]}, {circle[1]} radius: {circle[2]}")
             _logger.info(f"circle detected: {circles.shape}")
             self.__center = circles[0, 0, 0], circles[0, 0, 1]
 
@@ -368,7 +371,7 @@ class Saxs2dProfile:
         *,
         dr: float = np.nan,
         bins: np.ndarray = np.arange(0),
-        range: tuple[float, float] = (np.nan, np.nan),
+        auto_findcenter: bool = True,
     ) -> tuple[np.ndarray, np.ndarray]:
         """integrate along circumference
 
@@ -390,6 +393,12 @@ class Saxs2dProfile:
         """
         buf = self.__raw.copy()
 
+        if self.center[0] is np.nan:
+            if auto_findcenter:
+                self.findcenter()
+            else:
+                raise UnboundLocalError("center not set yet")
+
         dx = np.ones_like(buf) * np.arange(buf.shape[1]) - self.__center[1]
         dy = (
             np.ones_like(buf) * np.arange(buf.shape[0]).reshape(-1, 1)
@@ -401,13 +410,10 @@ class Saxs2dProfile:
         if bins.size == 0:
             if np.isnan(dr):
                 raise ValueError("dr or bins must be specified")
-            if range == (np.nan, np.nan):
-                range = (np.nanmin(dist), np.nanmax(dist))  # type: ignore
-
-            if (range[1] - range[0]) % dr > 1e-6:
-                bins = np.arange(range[0], range[1] + dr, dr)
-            else:
-                bins = np.arange(range[0], range[1], dr)
+            upper = np.nanmax(dist)
+            num = int(np.floor(upper / dr))
+            _logger.debug(f"upper: {upper}, num: {num}")
+            bins = np.arange(num + 1) * dr
 
         intensity = np.zeros(bins.size - 1)
         for i in np.arange(bins.size - 1):
@@ -420,3 +426,197 @@ class Saxs2dProfile:
             intensity[i] = avg
 
         return intensity, bins
+
+    @property
+    def mask(self) -> np.ndarray:
+        return np.asarray(self.__masks.copy())
+
+    @mask.setter
+    def mask(self, mask: np.ndarray) -> None:
+        self.__masks.append(mask)
+
+
+class Saxs1dProfile:
+    INDEX = "index"
+    PIXEL = "pixel"
+    Qnm = "q[nm^-1]"
+    X_UNITS = (INDEX, PIXEL, Qnm)
+
+    def __init__(self, intensity: np.ndarray, bins: np.ndarray):
+        if len(bins) != len(intensity):
+            raise ValueError("invalid shape")
+        self.__intensity: np.ndarray = intensity
+        self.__pixels = bins
+        self.__qnm: np.ndarray = None  # type: ignore
+        self.__peaks: list[int] = None  # type: ignore
+        return
+
+    @property
+    def intensity(self) -> np.ndarray:
+        return self.__intensity.copy()
+
+    @property
+    def pixels(self) -> np.ndarray:
+        return self.__pixels.copy()
+
+    @property
+    def q(self) -> np.ndarray:
+        return self.__qnm.copy()
+
+    def resetXUnit(self, x_unit: str, converter: Callable[[np.ndarray], np.ndarray]):
+        """reset x unit and convert bins
+        Parameters
+        ----------
+        x_unit: str
+            new x unit
+        func: function
+            function to convert bins
+        """
+        self.__qnm = converter(self.__pixels)
+        return
+
+    def findpeaks(self, order: int = 1):
+        """find peaks and set to self.peaks"""
+        if order < 1:
+            raise ValueError("order must be positive integer")
+        n_rows = 2 * order + 1
+        n_cols = len(self.__intensity) - n_rows
+        table = np.ndarray((n_rows, n_cols))
+        for i in range(n_rows):
+            table[i, :] = self.__intensity[i : i + n_cols]
+        peaks = np.argmax(table, axis=0) == order
+        peak_idx = np.arange(n_cols)[peaks]
+        self.__peaks = list(peak_idx)
+        return
+
+    def peaks(self, unit: str) -> list[int] | np.ndarray:
+        """return nth peak"""
+        if self.__peaks is None:
+            self.findpeaks()
+
+        left_idx = self.__peaks
+        right_idx = [i + 1 for i in left_idx]
+        if unit == "idx":
+            return self.__peaks
+        elif unit == self.PIXEL:
+            ret = (self.__pixels[left_idx] + self.__pixels[right_idx]) / 2
+            return ret  # type: ignore
+        elif unit == self.Qnm:
+            ret = (self.__qnm[left_idx] + self.__qnm[right_idx]) / 2
+            return ret  # type: ignore
+        else:
+            raise ValueError("invalid unit")
+
+    def save(
+        self,
+        path: str,
+        *,
+        overwrite: bool = False,
+        fmt: str = "%.6e, %.6f",
+        unit: str = "",
+    ):
+        """save profile as csv file"""
+        if (not overwrite) and os.path.exists(path):
+            raise FileExistsError("")
+        if unit == "":
+            unit = self.Qnm
+        if unit == self.PIXEL:
+            x = self.__pixels
+        elif unit == self.Qnm:
+            x = self.__qnm
+        else:
+            raise ValueError("invalid unit")
+        header = f"bins[{unit}], intensity"
+        np.savetxt(
+            path,
+            np.vstack((x, self.__intensity)).T,
+            delimiter=",",
+            header=header,
+            fmt=fmt,
+        )
+        return
+
+
+class SaxsProfile:
+    def __new__(cls):
+        raise NotImplementedError(f"{cls} default initializer not implemented")
+
+    @classmethod
+    def __internal_new(cls):
+        return object.__new__(cls)
+
+    def __init__(self):
+        self.__img: Saxs2dProfile = None  # type: ignore
+        self.__intensity: Saxs1dProfile = None  # type: ignore
+
+    @classmethod
+    def loadTiff(cls, path: str) -> "SaxsProfile":
+        """load profile from tiff file
+
+        Parameters
+        ----------
+        path: str
+            path to tiff file
+
+        Returns
+        -------
+        SaxsProfile
+        """
+        if not os.path.exists(path):
+            raise FileNotFoundError("")
+        if path[-4:] != ".tif":
+            raise ValueError("invalid file type")
+        obj = cls.__internal_new()
+        obj.__img = Saxs2dProfile.load_tiff(path)
+        return obj
+
+    def integrate(self):
+        """integrate and set to self.intensity"""
+        self.__img.auto_mask_invalid()
+        self.__img.findcenter()
+        intensity, bins = self.__img.integrate(dr=1.0)
+        pixels = (bins[:-1] + bins[1:]) / 2
+        self.__intensity = Saxs1dProfile(intensity, pixels)
+        return
+
+    def convertToIq(
+        self,
+        converter: Callable[[np.ndarray], np.ndarray],
+    ):
+        if self.__intensity is None:
+            raise UnboundLocalError("integrate not run yet")
+        self.__intensity.resetXUnit(Saxs1dProfile.Qnm, converter)
+        return
+
+    @property
+    def mask(self) -> np.ndarray:
+        return self.__img.mask
+
+    @mask.setter
+    def mask(self, mask: np.ndarray) -> None:
+        self.__img.mask = mask
+
+    @property
+    def center(self) -> tuple[float, float]:
+        return self.__img.center
+
+    @center.setter
+    def center(self, center: tuple[float, float]):
+        self.__img.center = center
+
+    @property
+    def intensity(self) -> np.ndarray:
+        return self.__intensity.intensity
+
+    def generateConverter(
+        self, *, nthpeak: int, peak_q: float
+    ) -> Callable[[np.ndarray], np.ndarray]:
+        stdPixel = self.__intensity.peaks(Saxs1dProfile.PIXEL)[nthpeak - 1]
+        return lambda x: x * peak_q / stdPixel
+
+    def peaks(self, unit: str = "") -> list[int] | np.ndarray:
+        return self.__intensity.peaks(unit)
+
+
+def loadTiff(path: str) -> SaxsProfile:
+    return SaxsProfile.loadTiff(path)

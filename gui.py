@@ -1,4 +1,4 @@
-from Saxs2dProfile import Saxs2dProfile
+from SaxsProfile import Saxs2dProfile
 import PySimpleGUI as sg
 import util
 
@@ -152,7 +152,7 @@ def main():
             action_button.update(text="detect center")
             continue
         if state == STATE_WAIT_DETECT_CENTER and event == "-BUTTON_ACTION-":
-            profile.detect_center()
+            profile.findcenter()
             if profile.center is None:
                 update_status("center not detected.\twaiting for manual selection")
                 state = STATE_WAIT_SELECT_CENTER

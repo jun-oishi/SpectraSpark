@@ -7,6 +7,7 @@ from logging import StreamHandler as __StreamHandler
 from logging import Formatter as __Formatter
 from logging import config as logging_config
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
+from typing import Callable
 
 # __LOG_CONFIG_FILE = "config/log_config.json"
 
