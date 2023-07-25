@@ -1,0 +1,15 @@
+Metadata-Version: 2.1
+Name: SpectraSpark
+Version: 0.0.1.dev2
+Summary: Saxs 2D profile analysis python APIs and GUI
+Home-page: https://github.com/jun-oishi/SpectraSpark
+Author: J. Oishi
+License: MIT
+Project-URL: Source, https://gitub.com/jun-oishi/SpectraSpark
+Keywords: saxs x-ray
+Classifier: Development Status :: 2 - Pre-Alpha
+Classifier: Intended Audience :: Science/Research
+Classifier: Topic :: Scientific/Engineering :: Physics
+Classifier: Programming Language :: Python :: 3.10
+Requires-Python: >=3.10, <4
+License-File: LICENSE.txt

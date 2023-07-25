@@ -1,0 +1,12 @@
+LICENSE.txt
+setup.py
+SpectraSpark.egg-info/PKG-INFO
+SpectraSpark.egg-info/SOURCES.txt
+SpectraSpark.egg-info/dependency_links.txt
+SpectraSpark.egg-info/entry_points.txt
+SpectraSpark.egg-info/requires.txt
+SpectraSpark.egg-info/top_level.txt
+src/SpectraSpark/__init__.py
+src/SpectraSpark/__main__.py
+src/SpectraSpark/Core/Saxs2dProfile.py
+src/SpectraSpark/Core/__init__.py

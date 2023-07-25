@@ -17,8 +17,8 @@ setup(
     project_urls={
         "Source": "https://gitub.com/jun-oishi/SpectraSpark",
     },
-    packages=["SpectraSpark"],
-    py_modules=["SpectraSpark.Saxs2dProfile"],
+    packages=["src.SpectraSpark"],
+    py_modules=["src.SpectraSpark.Core.Saxs2dProfile"],
     install_requires=["numpy", "matplotlib", "opencv-python", "PySimpleGUI"],
     python_requires=">=3.10, <4",
     entry_points={"console_scripts": ["spectra-spark=SpectraSpark.__main__:main"]},

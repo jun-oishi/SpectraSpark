@@ -1,0 +1,2 @@
+[console_scripts]
+spectra-spark = SpectraSpark.__main__:main
