@@ -8,10 +8,27 @@
                 "/usr/include/eigen3"
             ],
             "defines": [],
-            "compilerPath": "/usr/bin/gcc",
+            "compilerPath": "/usr/bin/g++",
             "cStandard": "c23",
             "cppStandard": "c++23",
             "intelliSenseMode": "linux-gcc-x64"
+        },
+        {
+            "name": "WSL_DEBUG",
+            "includePath": [
+                "/usr/include/**",
+                "/usr/include/eigen3",
+                "${workspaceFolder}/*",
+            ],
+            "defines": [
+                "_DEBUG",
+                "UNICODE",
+                "_UNICODE"
+            ],
+            "compilerPath": "/usr/bin/g++",
+            "cStandard": "c23",
+            "cppStandard": "c++23",
+            "intelliSenseMode": "gcc-x64"
         }
     ],
     "version": 4

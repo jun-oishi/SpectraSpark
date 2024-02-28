@@ -23,6 +23,7 @@
         "ytick"
     ],
     "editor.formatOnPaste": true,
-    "editor.formatOnType": true,
+    "editor.formatOnType": false,
     "files.trimTrailingWhitespace": true,
+    "cmake.sourceDirectory": "/home/oishi/codes/SpectraSpark/.venv/lib/python3.11/site-packages/PySide2/examples/samplebinding",
 }
