@@ -23,6 +23,8 @@ using namespace Eigen;
     to(__i_for_SLICE) = from(__i_for_SLICE + (ini)); \
   };
 
+const int MAX_RAND_ITER = 10000;
+
 /** 0からn-1の整数で埋められたvectorを返す */
 vector<int> range(const int n) {
   vector<int> v(n);
@@ -40,9 +42,7 @@ void Simulator::load_exp_data(const string &filename) {
   vector<double> q_vec;
   vector<double> i_exp_vec;
   double _q, _i_exp;
-  // cout << "cin: q, i" << endl;
   while (fin >> _q >> _i_exp) {
-  //   cout << "  " << _q << ", " << _i_exp << endl;
     q_vec.push_back(_q);
     i_exp_vec.push_back(_i_exp);
   }
@@ -51,10 +51,6 @@ void Simulator::load_exp_data(const string &filename) {
 
   this->q_exp = Map<VectorXd>(q_vec.data(), q_vec.size());
   this->i_exp = Map<VectorXd>(i_exp_vec.data(), i_exp_vec.size());
-  // cout << "Eigen::Vector: q, i" << endl;
-  // for (int i = 0; i < q_exp.size(); i++) {
-  //   cout << "  " << q_exp(i) << ", " << i_exp(i) << endl;
-  // }
   this->i_par.resize(q_exp.size());
   Eigen::VectorXd w = q_exp.array() * R_PARTICLE;
   this->i_par =
@@ -79,9 +75,8 @@ void Simulator::load_xtl(const string &filename) {
   double a, b, c, alpha, beta, gamma;
   iss >> a >> b >> c >> alpha >> beta >> gamma;
   int _Lx = (int)(a / (10*A_MG)), _Ly = (int)(b / (10*A_MG));
-  assert(gamma == 120);
+  assert(abs(alpha - 90) < 1e-6 && abs(beta - 90) < 1e-6 && abs(gamma - 120) < 1e-6);
   assert(abs(_Lx * 10 * A_MG - a) < A_MG  || abs(_Ly * 10 * A_MG - b) < A_MG);
-  cout << "Lx: " << _Lx << ", Ly: " << _Ly << endl;
   this->set_Lx(_Lx);
   this->set_Ly(_Ly);
 
@@ -98,20 +93,15 @@ void Simulator::load_xtl(const string &filename) {
     string name;
     double x, y, z;
     iss >> name >> x >> y >> z;
-    int _x = (int)(x * a) / (A_MG * 10), _y = (int)(y * b) / (A_MG * 10);
-    cout << "  " << _x << ", " << _y << endl;
+    int _x = round(Lx * x), _y = round(Ly * y);
     x_vec.push_back(_x);
     y_vec.push_back(_y);
   }
   this->n = x_vec.size();
   this->x = Map<VectorXi>(x_vec.data(), x_vec.size());
   this->y = Map<VectorXi>(y_vec.data(), y_vec.size());
-  cout << "x: " << this->x.transpose() << endl;
-  cout << "y: " << this->y.transpose() << endl;
   this->exists = -1 * MatrixXi::Ones(Lx, Ly);
   for (int i = 0; i < n; i++) exists(this->x(i), this->y(i)) = i;
-  cout << "xtl file loaded" << endl;
-  cout << exists.transpose() << endl;
 
   // x_re, y_re, a_re, a_im, i_simの初期化
   x_re.resize(n);
@@ -148,10 +138,6 @@ void Simulator::set_q_range(const double _q_min, const double _q_max) {
   SLICE(this->i_exp, _i_exp, _q_min_idx, _q_max_idx);
   SLICE(this->i_par, _i_par, _q_min_idx, _q_max_idx);
   SLICE(this->q_exp, _q_exp, _q_min_idx, _q_max_idx);
-  // cout << "stripped: q, i" << endl;
-  // for (int i = 0; i < this->q_exp.size(); i++) {
-  //   cout << "  " << this->q_exp(i) << ", " << this->i_exp(i) << endl;
-  // }
 }
 
 void Simulator::run(const int _max_iter, const double _res_thresh,
@@ -170,7 +156,6 @@ void Simulator::run(const int _max_iter, const double _res_thresh,
     assert(0 <= i + 1 && i + 1 <= max_iter);
     assert(residual_hist.size() == max_iter + 1);
     residual_hist(i + 1) = residual;
-    // cout << "iter " << i + 1 << " residual: " << residual << endl;
     if (residual < res_thresh) {
       residual_hist = residual_hist.segment(0, i + 1);
       break;
@@ -267,10 +252,6 @@ bool Simulator::try_move(const int i, const int d) {
   assert(0 <= d && d < 6);
   Vi before(x(i), y(i));
   Vi after(MOD(x(i) + STEP[d].x, Lx), MOD(y(i) + STEP[d].y, Ly));
-  // cout << exists.transpose() << endl;
-  // cout << "move " << i << " from (" << before.x << ", " << before.y << ") to
-  // ("
-  //      << after.x << ", " << after.y << ")" << endl;
   assert(exists(before.x, before.y) == i);
   assert(exists(after.x, after.y) == -1);
 
@@ -309,12 +290,11 @@ void Simulator::compute_i() {
     }
   }
 
-  VectorXd _re = a_re.rowwise().sum();
-  VectorXd _im = a_im.rowwise().sum();
-  i_sim = i_par.array() * (_re.array().square() + _im.array().square()) *
-          D_THETA / (2 * M_PI);
+  i_sim = i_par.array()
+          * ( a_re.array().square().rowwise().sum()
+              + a_im.array().square().rowwise().sum()
+          ) * D_THETA / (2 * M_PI);
   i_sim *= i_exp.sum() / i_sim.sum();
-  cout << "i_sim.sum: " << i_sim.sum() << ", i_exp.sum: " << i_exp.sum() << endl;
 }
 
 void Simulator::update_i(const Vd &before, const Vd &after) {
@@ -336,11 +316,10 @@ void Simulator::update_i(const Vd &before, const Vd &after) {
   }
 
   // 散乱強度の更新
-  VectorXd _re = a_re.rowwise().sum();
-  VectorXd _im = a_im.rowwise().sum();
-  assert(_re.size() == q_exp.size() && _im.size() == q_exp.size());
-  i_sim = i_par.array() * (_re.array().square() + _im.array().square()) *
-          D_THETA / (2 * M_PI);
+  i_sim = i_par.array()
+          * ( a_re.array().square().rowwise().sum()
+              + a_im.array().square().rowwise().sum()
+          ) * D_THETA / (2 * M_PI);
   i_sim *= i_exp.sum() / i_sim.sum();
 }
 
@@ -362,8 +341,7 @@ void Simulator::step_forword(const int n_move) {
     bool move_success = false;
     int n_exclude = 0;
     vector<int> exclude(n);
-    // for (int i : i_shuffled) {
-    while (!move_success) {
+    for (int rand_iter=0; rand_iter < MAX_RAND_ITER; rand_iter++) {
       int i = randint(n, exclude, n_exclude);
       if (i == -1) {
         cerr << "Error: failed to move any particles" << endl;
@@ -373,8 +351,6 @@ void Simulator::step_forword(const int n_move) {
       vector<int> d_shuffled = range(6);
       this->shuffle(d_shuffled);
       for (int d : d_shuffled) {
-        if (move_success) break;
-        bool movable = true;
         Vd before(x_re(i), y_re(i));
         move_success = try_move(i, d);
         if (!move_success) continue;
@@ -383,7 +359,9 @@ void Simulator::step_forword(const int n_move) {
         // 後ろから埋めて前から戻せば元通りになる
         move_i_hist[n_move - 1 - _n_move] = i;
         move_d_hist[n_move - 1 - _n_move] = d;
+        break;
       }
+      if (move_success) break;
     }
     if (!move_success) {
       cerr << "Error: failed to move any particles" << endl;
@@ -394,7 +372,7 @@ void Simulator::step_forword(const int n_move) {
   double after_residual = compute_residual();
   bool accept =
       (after_residual < residual) ||
-      (exp(-(after_residual - residual) / sigma2) > (double)rand() / RAND_MAX);
+      (exp(-(after_residual - residual) / sigma2) > dist(engine));
   if (accept) {
     residual = after_residual;
   } else {
@@ -424,6 +402,7 @@ void Simulator::save_result(const string &filename) const {
   f_xtl << "SYMMETRY LABEL  P1" << endl;
   f_xtl << "ATOMS" << endl;
   f_xtl << "NAME  X  Y  Z" << endl;
+  f_xtl << setprecision(10) << fixed;
   for (int i = 0; i < n; i++) {
     f_xtl << "L " << (double)x(i)/Lx << " " << (double)y(i)/Ly << " " << 0 << endl;
   }

@@ -13,7 +13,8 @@ const double _SQRT3BY2 = sqrt(3) / 2;
 template <typename T>
 struct Vec {
   T x, y;
-  Vec(const T _x, const T _y) : x(_x), y(_y) {}
+  Vec(const T _x, const T _y) : x(_x), y(_y) {};
+  Vec() {};
 
   Vec<T> operator+(const Vec<T> &v) const { return Vec<T>(x + v.x, y + v.y); }
 
@@ -49,6 +50,7 @@ class Simulator {
     this->residual_hist.resize(0);
     this->exists.resize(0, 0);
     this->engine = std::mt19937(seed);
+    this->dist = std::uniform_real_distribution<double>(0, 1);
   }
 
   /** Lx, Ly をセットする */
@@ -118,6 +120,7 @@ class Simulator {
   // exists[x,y]にはx,yに粒子が無ければ-1、あればその粒子のインデックスを入れる
   Eigen::MatrixXi exists;
   std::mt19937 engine;
+  std::uniform_real_distribution<double> dist;
 
   const int seed;
   const double A_MG = 0.321;
@@ -125,16 +128,22 @@ class Simulator {
   const double R_PARTICLE = 0.355;
   const std::array<Vi, 6> STEP = {Vi(1, 0),  Vi(1, 1),   Vi(0, 1),
                                   Vi(-1, 0), Vi(-1, -1), Vi(0, -1)};
-  const int N_THETA = 360;
+  const int N_THETA = 180;
   const double D_THETA = 2 * M_PI / N_THETA;
-  /** 第3近接以内の禁止区域 */
-  const Vi PROHIBITED[19] = {
+  /** 第5近接以内の禁止区域 */
+  const Vi PROHIBITED[37] = {
       Vi(0, 0),  // 0NN
       Vi(1, 0),   Vi(1, 1),   Vi(0, 1),  Vi(-1, 0),
       Vi(-1, -1), Vi(0, -1),  // 1NN
       Vi(2, 0),   Vi(2, 1),   Vi(2, 2),  Vi(1, 2),
       Vi(0, 2),   Vi(-1, 1),  Vi(-2, 0), Vi(-2, -1),
-      Vi(-2, -2), Vi(-1, -2), Vi(0, -2), Vi(1, -1)  // 2,3NN
+      Vi(-2, -2), Vi(-1, -2), Vi(0, -2), Vi(1, -1),  // 2,3NN
+      Vi(3, 0),   Vi(3, 1),   Vi(3, 2),
+      Vi(3, 3),   Vi(2, 3),   Vi(1, 3),
+      Vi(0, 3),  Vi(-1, 2),  Vi(-2, 1),
+      Vi(-3, 0), Vi(-3, -1), Vi(-3, -2),
+      Vi(-3, -3), Vi(-2, -3), Vi(-1, -3),
+      Vi(0, -3), Vi(1, -2), Vi(2, -1)  // 4,5NN
   };
 
   inline void shuffle(std::vector<int> &v) { std::shuffle(v.begin(), v.end(), engine); }

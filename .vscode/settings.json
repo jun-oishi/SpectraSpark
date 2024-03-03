@@ -25,5 +25,13 @@
     "editor.formatOnPaste": true,
     "editor.formatOnType": false,
     "files.trimTrailingWhitespace": true,
-    "cmake.sourceDirectory": "/home/oishi/codes/SpectraSpark/.venv/lib/python3.11/site-packages/PySide2/examples/samplebinding",
-}
+    "C_Cpp.files.exclude": {
+        "**": true,
+        "${workspaceFolder}/src/**": false,
+    },
+    "files.associations": {
+        "*.tpl": "html",
+        "stdout": "plaintext",
+        "ostream": "cpp"
+    },
+    }

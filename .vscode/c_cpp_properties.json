@@ -4,7 +4,6 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/*",
-                "${workspaceFolder}/.venv/lib/python3.11/site-packages/pybind11/include",
                 "/usr/include/python3.11",
                 "/usr/include/eigen3"
             ],
@@ -12,13 +11,21 @@
             "compilerPath": "/usr/bin/g++",
             "cStandard": "c23",
             "cppStandard": "c++23",
-            "intelliSenseMode": "linux-gcc-x64"
+            "intelliSenseMode": "linux-gcc-x64",
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/",
+                    "/usr/include",
+                    "/usr/include/eigen3"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            }
         },
         {
             "name": "WSL_DEBUG",
             "includePath": [
                 "${workspaceFolder}/*",
-                "/usr/include/**",
+                "/usr/include/",
                 "/usr/include/eigen3"
             ],
             "defines": [
@@ -29,7 +36,15 @@
             "compilerPath": "/usr/bin/g++",
             "cStandard": "c23",
             "cppStandard": "c++23",
-            "intelliSenseMode": "gcc-x64"
+            "intelliSenseMode": "gcc-x64",
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/",
+                    "/usr/include",
+                    "/usr/include/eigen3"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            }
         }
     ],
     "version": 4
