@@ -37,9 +37,13 @@ int main() {
   // Lx = 90;
   // Ly = 90;
   // n = 465;
-  sim.set_Lx(Lx);
-  sim.set_Ly(Ly);
-  sim.set_n(n);
+  // sim.set_Lx(Lx);
+  // sim.set_Ly(Ly);
+  // sim.set_n(n);
+  // sim.init();
+  // test text
+  string srcxtl = "test3.xtl";
+  sim.load_xtl(srcxtl);
 
   cout << "max_iter : ";
   cin >> max_iter;
@@ -48,7 +52,6 @@ int main() {
   cout << "sigma2 coeff: ";
   cin >> sigma2;
 
-  sim.init();
   now = chrono::system_clock::now();
   cout << "Initialized in "
        << chrono::duration_cast<chrono::milliseconds>(now - start).count()

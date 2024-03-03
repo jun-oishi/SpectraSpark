@@ -23,14 +23,6 @@ using namespace Eigen;
     to(__i_for_SLICE) = from(__i_for_SLICE + (ini)); \
   };
 
-// random_device seed_gen;
-// mt19937 engine(seed_gen());
-int seed = 0;
-mt19937 engine(seed);
-
-/** vectorをランダムにシャッフルする */
-void random_shuffle(vector<int> &v) { shuffle(v.begin(), v.end(), engine); }
-
 /** 0からn-1の整数で埋められたvectorを返す */
 vector<int> range(const int n) {
   vector<int> v(n);
@@ -68,6 +60,69 @@ void Simulator::load_exp_data(const string &filename) {
   this->i_par =
       (3 * (sin(w.array()) - w.array() * cos(w.array())) / (w.array().pow(3)))
           .square();
+}
+
+void Simulator::load_xtl(const string &filename) {
+  ifstream fin(filename);
+  if (!fin) {
+    cerr << "Error: cannot open file `" << filesystem::current_path()
+         << filename << "`" << endl;
+    exit(1);
+  }
+  string line;
+  getline(fin, line); // TITLE行
+  getline(fin, line); // CELLのみの行
+
+  // 格子定数の読み込み
+  getline(fin, line);
+  istringstream iss(line);
+  double a, b, c, alpha, beta, gamma;
+  iss >> a >> b >> c >> alpha >> beta >> gamma;
+  int _Lx = (int)(a / (10*A_MG)), _Ly = (int)(b / (10*A_MG));
+  assert(gamma == 120);
+  assert(abs(_Lx * 10 * A_MG - a) < A_MG  || abs(_Ly * 10 * A_MG - b) < A_MG);
+  cout << "Lx: " << _Lx << ", Ly: " << _Ly << endl;
+  this->set_Lx(_Lx);
+  this->set_Ly(_Ly);
+
+  getline(fin, line); // SYMMETRY NUMBER
+  getline(fin, line); // SYMMETRY LABEL
+  getline(fin, line); // ATOMS
+  getline(fin, line); // NAME X Y Z
+
+  // 粒子位置の読み込み
+  vector<int> x_vec(0), y_vec(0);
+  while (getline(fin, line)) {
+    if (line == "EOF") break;
+    istringstream iss(line);
+    string name;
+    double x, y, z;
+    iss >> name >> x >> y >> z;
+    int _x = (int)(x * a) / (A_MG * 10), _y = (int)(y * b) / (A_MG * 10);
+    cout << "  " << _x << ", " << _y << endl;
+    x_vec.push_back(_x);
+    y_vec.push_back(_y);
+  }
+  this->n = x_vec.size();
+  this->x = Map<VectorXi>(x_vec.data(), x_vec.size());
+  this->y = Map<VectorXi>(y_vec.data(), y_vec.size());
+  cout << "x: " << this->x.transpose() << endl;
+  cout << "y: " << this->y.transpose() << endl;
+  this->exists = -1 * MatrixXi::Ones(Lx, Ly);
+  for (int i = 0; i < n; i++) exists(this->x(i), this->y(i)) = i;
+  cout << "xtl file loaded" << endl;
+  cout << exists.transpose() << endl;
+
+  // x_re, y_re, a_re, a_im, i_simの初期化
+  x_re.resize(n);
+  y_re.resize(n);
+  for (int i = 0; i < n; i++) {
+    Vd coord = real_coord(this->x(i), this->y(i));
+    x_re(i) = coord.x;
+    y_re(i) = coord.y;
+  }
+  assert(q_exp.size() > 0 || "exp data not loaded");
+  compute_i();
 }
 
 void Simulator::set_q_range(const double _q_min, const double _q_max) {
@@ -138,10 +193,10 @@ void Simulator::init() {
   vector<int> x_shuffled = range(Lx);
   vector<int> y_shuffled = range(Ly);
   for (int i = 0; i < n; i++) {
-    random_shuffle(x_shuffled);
+    this->shuffle(x_shuffled);
     bool success_x = 0;
     for (int _x : x_shuffled) {
-      random_shuffle(y_shuffled);
+      this->shuffle(y_shuffled);
       bool success_y = 0;
       for (int _y : y_shuffled) {
         bool is_clear = 1;
@@ -188,11 +243,23 @@ void Simulator::init() {
     x_re(i) = coord.x;
     y_re(i) = coord.y;
   }
+  assert(q_exp.size() > 0 || "exp data not loaded");
   compute_i();
 
   cout << "Initialization done" << endl;
   residual = compute_residual();
   cout << "initial residual: " << residual << endl;
+}
+
+int Simulator::randint(const int max, vector<int> &exclude, const int n_exclude) {
+  assert(max > 0);
+  if (n_exclude == max) return -1;
+  int r;
+  auto end = exclude.begin() + n_exclude;
+  do {
+    r = engine() % max;
+  } while (find(exclude.begin(), end, r) != end);
+  return r;
 }
 
 bool Simulator::try_move(const int i, const int d) {
@@ -247,6 +314,7 @@ void Simulator::compute_i() {
   i_sim = i_par.array() * (_re.array().square() + _im.array().square()) *
           D_THETA / (2 * M_PI);
   i_sim *= i_exp.sum() / i_sim.sum();
+  cout << "i_sim.sum: " << i_sim.sum() << ", i_exp.sum: " << i_exp.sum() << endl;
 }
 
 void Simulator::update_i(const Vd &before, const Vd &after) {
@@ -291,13 +359,19 @@ void Simulator::step_forword(const int n_move) {
   vector<int> move_d_hist(n_move);
 
   for (int _n_move = 0; _n_move < n_move; _n_move++) {
-    vector<int> i_shuffled = range(n);
-    random_shuffle(i_shuffled);
-    bool move_success = 0;
-    for (int i : i_shuffled) {
+    bool move_success = false;
+    int n_exclude = 0;
+    vector<int> exclude(n);
+    // for (int i : i_shuffled) {
+    while (!move_success) {
+      int i = randint(n, exclude, n_exclude);
+      if (i == -1) {
+        cerr << "Error: failed to move any particles" << endl;
+        exit(1);
+      }
       if (move_success) break;
       vector<int> d_shuffled = range(6);
-      random_shuffle(d_shuffled);
+      this->shuffle(d_shuffled);
       for (int d : d_shuffled) {
         if (move_success) break;
         bool movable = true;
@@ -343,8 +417,9 @@ void Simulator::save_result(const string &filename) const {
     exit(1);
   }
   f_xtl << "TITLE " << filename << endl;
+  // xtlの格子サイズはAA単位
   f_xtl << "CELL" << endl
-        << "  " << A_MG*Lx << "  " << A_MG*Ly << C_MG << " 90  90  120" << endl;
+        << "  " << A_MG*Lx*10 << " " << A_MG*Ly*10 << " " << C_MG*10 << " 90 90 120" << endl;
   f_xtl << "SYMMETRY NUMBER 1" << endl;
   f_xtl << "SYMMETRY LABEL  P1" << endl;
   f_xtl << "ATOMS" << endl;

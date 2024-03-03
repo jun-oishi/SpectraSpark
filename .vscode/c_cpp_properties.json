@@ -3,6 +3,7 @@
         {
             "name": "Linux",
             "includePath": [
+                "${workspaceFolder}/*",
                 "${workspaceFolder}/.venv/lib/python3.11/site-packages/pybind11/include",
                 "/usr/include/python3.11",
                 "/usr/include/eigen3"
@@ -16,9 +17,9 @@
         {
             "name": "WSL_DEBUG",
             "includePath": [
-                "/usr/include/**",
-                "/usr/include/eigen3",
                 "${workspaceFolder}/*",
+                "/usr/include/**",
+                "/usr/include/eigen3"
             ],
             "defines": [
                 "_DEBUG",

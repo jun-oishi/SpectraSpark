@@ -6,6 +6,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <random>
 
 const double _SQRT3BY2 = sqrt(3) / 2;
 
@@ -22,11 +23,9 @@ struct Vec {
 using Vi = Vec<int>;
 using Vd = Vec<double>;
 
-void shuffle(std::vector<int> &v);
-
 class Simulator {
  public:
-  Simulator() {
+  Simulator(const int _seed = 0) : seed(_seed) {
     this->Lx = 0;
     this->Ly = 0;
     this->n = 0;
@@ -49,6 +48,7 @@ class Simulator {
     this->residual = std::nan("");
     this->residual_hist.resize(0);
     this->exists.resize(0, 0);
+    this->engine = std::mt19937(seed);
   }
 
   /** Lx, Ly をセットする */
@@ -69,6 +69,14 @@ class Simulator {
    *    ヘッダなしのスペース区切りのファイルで1列目がq、2列目がI(q)の実験値
    */
   void load_exp_data(const std::string &filename);
+
+  /**
+   * @brief ファイルからxtlファイルを読み込む
+   * 格子定数がA_MGの整数倍から1割以上離れていればエラーを出す
+   *
+   * @param filename
+   */
+  void load_xtl(const std::string &filename);
 
   /** iを評価するqの範囲を指定する load_exp_dataの後に実行する */
   void set_q_range(const double _q_min, const double _q_max);
@@ -109,7 +117,9 @@ class Simulator {
   Eigen::VectorXd residual_hist;
   // exists[x,y]にはx,yに粒子が無ければ-1、あればその粒子のインデックスを入れる
   Eigen::MatrixXi exists;
+  std::mt19937 engine;
 
+  const int seed;
   const double A_MG = 0.321;
   const double C_MG = 0.521;
   const double R_PARTICLE = 0.355;
@@ -126,6 +136,11 @@ class Simulator {
       Vi(0, 2),   Vi(-1, 1),  Vi(-2, 0), Vi(-2, -1),
       Vi(-2, -2), Vi(-1, -2), Vi(0, -2), Vi(1, -1)  // 2,3NN
   };
+
+  inline void shuffle(std::vector<int> &v) { std::shuffle(v.begin(), v.end(), engine); }
+
+  /** 0からmaxまでの乱数を生成する */
+  int randint(const int max, std::vector<int> &exclude, const int n_exclude);
 
   /** 粒子を移動させても禁止域に近づかないか確認してだめなら0を返し可能ならx, y,
    * exists, x_re, y_reを更新する */
