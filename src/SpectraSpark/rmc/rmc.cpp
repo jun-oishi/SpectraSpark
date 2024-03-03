@@ -335,19 +335,25 @@ void Simulator::step_forword(const int n_move) {
 }
 
 void Simulator::save_result(const string &filename) const {
-  // クラスタ位置をxyzファイルに保存
-  string xyz = filename + ".xyz";
-  ofstream f_xyz(filename + ".xyz");
-  if (!f_xyz) {
-    cerr << "Error: cannot open file " << xyz << endl;
+  // クラスタ位置をxtlファイルに保存
+  string xtl = filename + ".xtl";
+  ofstream f_xtl(filename + ".xtl");
+  if (!f_xtl) {
+    cerr << "Error: cannot open file " << xtl << endl;
     exit(1);
   }
-  f_xyz << n << endl;
-  f_xyz << "Lx=" << Lx << " Ly=" << Ly << " A_MG=" << A_MG << endl;
+  f_xtl << "TITLE " << filename << endl;
+  f_xtl << "CELL" << endl
+        << "  " << A_MG*Lx << "  " << A_MG*Ly << C_MG << " 90  90  120" << endl;
+  f_xtl << "SYMMETRY NUMBER 1" << endl;
+  f_xtl << "SYMMETRY LABEL  P1" << endl;
+  f_xtl << "ATOMS" << endl;
+  f_xtl << "NAME  X  Y  Z" << endl;
   for (int i = 0; i < n; i++) {
-    f_xyz << "L " << x_re(i) << " " << y_re(i) << " 0" << endl;
+    f_xtl << "L " << (double)x(i)/Lx << " " << (double)y(i)/Ly << " " << 0 << endl;
   }
-  f_xyz.close();
+  f_xtl << "EOF" << endl;
+  f_xtl.close();
 
   // 格子座標でも保存
   string lattice = filename + "_lattice.dat";

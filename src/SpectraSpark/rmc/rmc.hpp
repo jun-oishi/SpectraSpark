@@ -111,6 +111,7 @@ class Simulator {
   Eigen::MatrixXi exists;
 
   const double A_MG = 0.321;
+  const double C_MG = 0.521;
   const double R_PARTICLE = 0.355;
   const std::array<Vi, 6> STEP = {Vi(1, 0),  Vi(1, 1),   Vi(0, 1),
                                   Vi(-1, 0), Vi(-1, -1), Vi(0, -1)};
