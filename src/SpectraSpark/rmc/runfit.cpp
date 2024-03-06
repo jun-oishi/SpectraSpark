@@ -1,5 +1,5 @@
 
-#include "rmc.cpp"
+#include "rmc.hpp"
 #include <iostream>
 #include <string>
 #include <chrono>
@@ -7,7 +7,7 @@
 using namespace std;
 
 chrono::system_clock::time_point start;
-string ini_xtl = "ini.xtl";
+string ini_xtl = "../../../data/s183/s183sVg/ini465.xtl";
 
 void show_time(const string &msg = "") {
   chrono::system_clock::time_point now = chrono::system_clock::now();
@@ -28,16 +28,20 @@ int main(int argc, char *argv[]) {
 
   string expdata = argv[1];
   string dst = argv[2];
+  int n_steps = stoi(argv[3]);
+  double sigma2 = stod(argv[4]);
+  expdata = "../../../data/s183/s183sVg/562C/s183sVg220.dat";
+  dst = "../../../data/s183/s183sVg/562C/iter1k_sigma1e-3";
+  n_steps = 1000;
+  sigma2 = 1e-3;
 
-  ofstream _result(dst+".xtl");
+  ofstream _result(dst + ".xtl");
   if (!_result) {
     cout << "Error: cannot save to " << dst << endl;
     return 1;
   }
   _result.close();
 
-  int n_steps = stoi(argv[3]);
-  double sigma2 = stod(argv[4]);
 
   start = chrono::system_clock::now();
 
@@ -50,7 +54,7 @@ int main(int argc, char *argv[]) {
   // sim.set_n(465);
   sim.set_q_range(4.0, 7.0);
   // sim.init();
-  sim.load_xtl("ini.xtl");
+  sim.load_xtl(ini_xtl);
   show_time("initialize");
 
   sim.run(n_steps, 1, sigma2, 3);
