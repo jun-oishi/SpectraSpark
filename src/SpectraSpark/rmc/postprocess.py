@@ -172,17 +172,17 @@ class Config:
             f.write("\n")
         print(f"Saved {dst}")
 
-        dst = name + "_nn.png"
-        if os.path.exists(dst):
-            if input(f"Overwrite {dst}? [y/n] : ") != "y":
-                print(f"Skip {dst}")
-                return
+        # dst = name + "_nn.png"
+        # if os.path.exists(dst):
+        #     if input(f"Overwrite {dst}? [y/n] : ") != "y":
+        #         print(f"Skip {dst}")
+        #         return
 
-        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
-        title = title if title != "" else self.src
-        self.plot(ax, fontsize=fontsize)
-        ax.set_title(title, fontsize=fontsize)
-        fig.savefig(dst)
+        # fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+        # title = title if title != "" else self.src
+        # self.plot(ax, fontsize=fontsize)
+        # ax.set_title(title, fontsize=fontsize)
+        # fig.savefig(dst)
 
     def saveXtl(self, dst: str = ""):
         x = self.x / self.Lx

@@ -7,7 +7,6 @@
 using namespace std;
 
 chrono::system_clock::time_point start;
-string ini_xtl = "../../../data/s183/s183sVg/ini465.xtl";
 
 void show_time(const string &msg = "") {
   chrono::system_clock::time_point now = chrono::system_clock::now();
@@ -16,24 +15,30 @@ void show_time(const string &msg = "") {
 }
 
 int main(int argc, char *argv[]) {
-  if (argc < 5) {
-    cout << "Usage: " << argv[0] << " <expdata> <dst> <n_steps> <sigma2>" << endl;
+  if (argc < 8) {
+    cout << "Usage: " << argv[0] << " <expdata> <initial> <dst> <n_steps> <sigma2>" << endl;
     cout << "  expdata: path to I(q) data file to fit" << endl;
+    cout << "  initial: path to initial xtl file" << endl;
     cout << "  dst    : path to save result" << endl;
     cout << "  n_steps: number of steps to run" << endl;
     cout << "  sigma2 : variance of the noise" << endl;
-    cout << "  note   : ini.xtl is required in the current directory" << endl;
+    cout << "  q_min  : minimum q to fit" << endl;
+    cout << "  q_max  : maximum q to fit" << endl;
     return 1;
   }
 
   string expdata = argv[1];
-  string dst = argv[2];
-  int n_steps = stoi(argv[3]);
-  double sigma2 = stod(argv[4]);
-  expdata = "../../../data/s183/s183sVg/562C/s183sVg220.dat";
-  dst = "../../../data/s183/s183sVg/562C/iter1k_sigma1e-3";
-  n_steps = 1000;
-  sigma2 = 1e-3;
+  string ini_xtl = argv[2];
+  string dst = argv[3];
+  int n_steps = stoi(argv[4]);
+  double sigma2 = stod(argv[5]);
+  double q_min = stod(argv[6]);
+  double q_max = stod(argv[7]);
+
+  assert(n_steps >= 100);
+  assert(sigma2 > 0);
+  assert(0 < q_min && q_min < 10 && q_min < q_max);
+  assert(0 < q_max && q_max < 10);
 
   ofstream _result(dst + ".xtl");
   if (!_result) {
@@ -49,11 +54,7 @@ int main(int argc, char *argv[]) {
   sim.load_exp_data(expdata);
   show_time("load_exp_data");
 
-  // sim.set_Lx(90);
-  // sim.set_Ly(90);
-  // sim.set_n(465);
-  sim.set_q_range(4.0, 7.0);
-  // sim.init();
+  sim.set_q_range(q_min, q_max);
   sim.load_xtl(ini_xtl);
   show_time("initialize");
 
