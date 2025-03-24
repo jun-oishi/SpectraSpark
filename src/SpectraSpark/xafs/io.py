@@ -274,7 +274,7 @@ def save_rbkg(group:Group, dst:str='', *, fmt='%.8f', only_mu=False)->str:
     keys = ('ek0', 'iek0', 'iemax', 'irbkg', 'kmax', 'kmin')
     details = {key: getattr(autobk_details, key) for key in keys if not key.startswith('_')}
     details['rbkg'] = group.rbkg
-    details['e0'] = group.e0
+    # details['kweight'] = group.kw
     details['src'] = group.filename
     column_labels = ['energy', 'mu', 'pre_edge', 'post_edge', 'bkg', 'chie']
     table = np.array([getattr(group, label) for label in column_labels]).T
