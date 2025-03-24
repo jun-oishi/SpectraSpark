@@ -6,19 +6,20 @@ from numba import jit
 from matplotlib import pyplot as plt
 import tqdm
 import cv2
-from typing import Tuple
+from typing import Tuple, Callable
 
-from ..util import listFiles, write_json, read_json, savetxt, ArrayLike, is_numeric
+from ..util import listFiles, write_json, read_json, savetxt, is_numeric
 from ..util.basic_calculation import r2q
 from ..constants import DETECTER_PX_SIZES
 
 class Saxs2dParams:
-    CALIBRATION_TYPES = ('geometry', 'linear_regression', 'none')
+    CALIBRATION_TYPES = ('geometry', 'linear_regression', '2theta', 'none')
 
     def __init__(self, *,
                  center_x: float=np.nan,
                  center_y: float=np.nan,
                  calibration_type:str='none',
+                 detecter:str='',
                  px_size: float=np.nan,
                  camera_length: float=np.nan,
                  wave_length: float=np.nan,
@@ -29,11 +30,12 @@ class Saxs2dParams:
         self.center_x = float(center_x) # [px]
         self.center_y = float(center_y) # [px]
         self.calibration_type = calibration_type
+        self.detecter = detecter # 'PILATUS' or 'EIGER' or 'unknown'
         self.px_size = float(px_size)   # [mm]
         self.camera_length = float(camera_length) # [mm]
-        self.wave_length = float(wave_length)     # [AA]
-        self.slope = float(slope)  # [nm^-1/px]
-        self.intercept = float(intercept) # [nm^-1]
+        self.wave_length = float(wave_length)     # [nm]
+        self.slope = float(slope)  # [nm^-1/px] / [deg/px]
+        self.intercept = float(intercept) # [nm^-1] / [deg]
         self.flip = flip
         self.mask_src = mask_src
 
@@ -58,7 +60,7 @@ class Saxs2dParams:
         write_json(dst, self.__dict__)
 
 @jit(nopython=True, cache=True)
-def _radial_average(img, center_x, center_y, threshold=2):
+def _radial_average(img:np.ndarray, center_x:float, center_y:float, threshold:int=2)->Tuple[np.ndarray, np.ndarray]:
     """画像の中心を中心にして、動径平均を計算する
 
     Parameters
@@ -105,19 +107,78 @@ def _radial_average(img, center_x, center_y, threshold=2):
     return r + 0.5, i
 
 @jit(nopython=True, cache=True)
-def _mask_and_average(img, mask, center_x, center_y, threshold=2):
+def _mask_and_average(img:np.ndarray, mask:np.ndarray, center_x:float, center_y:float, threshold:int=2):
+    """画像をマスクして、動径平均を計算する
+    _radial_average(img*mask, center_x, center_y, threshold)と同じ
+    """
     return _radial_average(img*mask, center_x, center_y, threshold)
 
-def _readmask(src:str):
+def _find_circle_center(points:list[Tuple[float, float]])->Tuple[float, float]:
+    """与えられた点を通る円の中心を求める
+    see https://risalc.info/src/Least-square-circle.html
+
+    Parameters
+    ----------
+    points : list[Tuple[float, float]]
+        点の座標(x, y)のリスト
+
+    Returns
+    -------
+    center : Tuple[float, float]
+        円の中心の座標(x, y)
+    """
+    x, y = np.array(points).T
+    x_g, y_g = np.mean(x), np.mean(y)
+    x, y = x - x_g, y - y_g
+    T20, T02 = np.sum(x**2), np.sum(y**2)
+    T30, T03 = np.sum(x**3), np.sum(y**3)
+    T11, T12, T21 = np.sum(x*y), np.sum(x*y**2), np.sum(x**2*y)
+    left = np.array([[T20, T11], [T11, T02]])
+    right = 0.5 * np.array([T30+T12, T03+T21])
+    center = np.linalg.solve(left, right)
+    return center[0]+x_g, center[1]+y_g
+
+def _readmask(src:str)->np.ndarray:
+    """ファイルからマスクを読み込む
+    ファイルを読み込んでuint8の二次元配列にして返す
+    """
     if not os.path.exists(src):
         raise FileNotFoundError(f"{src} is not found.")
     mask = cv2.imread(src, cv2.IMREAD_UNCHANGED)
     if len(mask.shape) != 2:
         raise ValueError("mask file must be 2D single-channel image")
     mask[mask > 0] = 1
+    print(f"mask {os.path.abspath(src)} loaded")
     return mask.astype(np.uint8)
 
-def _get_stats(img, mask, center_x, center_y, prefix, r2q, threshold=2):
+def _get_stats(img:np.ndarray, mask:np.ndarray, center_x:float, center_y:float, prefix:str, r2q:Callable, threshold:int=2)->Tuple[np.ndarray, np.ndarray]:
+    """動径平均と分散を求めてtsv, 散布図, エラーバー付きq-iプロットを保存する
+    imgをマスクして動径平均と分散を計算して{prefix}_radial.tsv, {prefix}_scatter.png, {prefix}_radial.pngを保存する
+
+    Parameters
+    ----------
+    img : np.ndarray
+        散乱強度の2次元配列
+    mask : np.ndarray
+        マスク画像の配列, 0の画素は無視される
+    center_x : float
+        ビームセンターのx座標
+    center_y : float
+        ビームセンターのy座標
+    prefix : str
+        保存するファイル名のプレフィックス
+    r2q : Callable[[np.ndarray], np.ndarray]
+        動径をqに変換する関数
+    threshold : int
+        この値より小さい画素は無視する
+
+    Returns
+    -------
+    r : np.ndarray
+        r[px]の配列
+    i : np.ndarray
+        散乱強度の配列
+    """
     img = img * mask
     figsize = (img.shape[1]//80, 8)
 
@@ -154,7 +215,7 @@ def _get_stats(img, mask, center_x, center_y, prefix, r2q, threshold=2):
     min_i, max_i = np.nanmin(i), np.max(img)
 
     # 散布図
-    savetxt(f"{prefix}_scatter.csv", np.array([q_mesh.flatten(), img.flatten()]).T,
+    savetxt(f"{prefix}_scatter.tsv", np.array([q_mesh.flatten(), img.flatten()]).T,
             header=["q[nm^-1]", "i"], overwrite=True)
     fig, ax = plt.subplots(figsize=figsize)
     ax.scatter(q_mesh, img, s=1)
@@ -169,7 +230,7 @@ def _get_stats(img, mask, center_x, center_y, prefix, r2q, threshold=2):
 
     # 動径平均とエラーバー
     q = r2q(r+0.5)
-    savetxt(f"{prefix}_radial.csv", np.array([q, i, i_std, cnt]).T,
+    savetxt(f"{prefix}_radial.tsv", np.array([q, i, i_std, cnt]).T,
             header=["q[nm^-1]", "i", "i_std", "n"], overwrite=True)
     fig, ax = plt.subplots(figsize=figsize)
     ax.errorbar(q, i, yerr=i_std, fmt='o', markersize=2)
@@ -195,6 +256,7 @@ def file_integrate(file:str, **kwargs):
 def series_integrate(src: list[str]|str, *,
                      param_src = '', mask_src: str='', mask: np.ndarray=np.array([]),
                      center_x=np.nan, center_y=np.nan,
+                     calibration='none',
                      camera_length=np.nan, wave_length=np.nan,
                      px_size=np.nan, detecter="",
                      slope=np.nan, intercept=np.nan,
@@ -232,7 +294,7 @@ def series_integrate(src: list[str]|str, *,
     statistics : bool
         Trueなら統計情報を出力する
     dst : str
-        結果を保存するファイル名、指定がなければdir.csv
+        結果(tsv)を保存するファイル名、指定がなければdir.tsv
     overwrite : bool
         Trueなら上書きする
     verbose : bool
@@ -243,33 +305,40 @@ def series_integrate(src: list[str]|str, *,
         if src.endswith(".tif"):
             if not os.path.exists(src):
                 raise FileNotFoundError(f"{src} is not found.")
-            dst = dst if dst else re.sub(r"\.tif$", ".csv", src)
+            dst = dst if dst else re.sub(r"\.tif$", ".tsv", src)
             files = [src]
-        else:
-            if not os.path.isdir(src):
-                raise FileNotFoundError(f"{src} is not found.")
+        elif os.path.isdir(src):
             files = [os.path.join(src, f) for f in listFiles(src, ext=".tif")]
-            dst = dst if dst else src + ".csv"
+            dst = dst if dst else src + ".tsv"
+        else:
+            raise ValueError("Unsupported file format: only .tif or directory (with tif files init) is supported")
     else:
         for file in src:
             if not file.endswith(".tif"):
                 raise ValueError("Unsupported file format: only .tif is supported")
         if len(dst) == 0:
             raise ValueError("dst to save results must be set")
+        elif not dst.endswith(".tsv"):
+            dst = dst + ".tsv"
+            warnings.warn(f"dst is set as {dst}")
         files=src
 
     if param_src:
         if not os.path.exists(param_src):
             raise FileNotFoundError(f"{param_src} is not found.")
         params = Saxs2dParams.load(param_src)
+        param_src_dir = os.path.abspath(os.path.dirname(param_src))
         center_x = params.center_x
         center_y = params.center_y
+        calibration = params.calibration_type
         camera_length = params.camera_length
         wave_length = params.wave_length
         px_size = params.px_size
+        detecter = params.detecter
         slope = params.slope
         intercept = params.intercept
         flip = params.flip
+        mask_src = os.path.join(param_src_dir, params.mask_src) if params.mask_src else ''
 
     n_files = len(files)
     if n_files == 0:
@@ -286,21 +355,41 @@ def series_integrate(src: list[str]|str, *,
     i_all = []
     headers = ["q[nm^-1]"]
 
-    if detecter.upper() in DETECTER_PX_SIZES:
-        px_size = DETECTER_PX_SIZES[detecter.upper()]
-    elif detecter == '':
-        if np.isnan(px_size):
-            raise ValueError("either `px_size` or `detecter` must be set")
-    else:
-        raise ValueError(f'unrecognized detecter `{detecter}`')
+    if detecter:
+        detecter = detecter.upper()
+        if not detecter in DETECTER_PX_SIZES:
+            raise ValueError(f"unrecognized detecter `{detecter}`")
+        px_size = DETECTER_PX_SIZES[detecter]
 
-    calibration = 'none'
-    if is_numeric(camera_length) and is_numeric(wave_length):
+    if calibration == 'geometry':
+        # px -> r[mm] -> q[nm^-1]
+        if not is_numeric(camera_length):
+            raise ValueError("camera_length must be set for geometry calibration")
+        if not is_numeric(wave_length):
+            raise ValueError("wave_length must be set for geometry calibration")
+        if not is_numeric(px_size):
+            raise ValueError("px_size must be set for geometry calibration")
+    elif calibration == 'linear_regression':
+        # px -> q[nm^-1]
+        if not is_numeric(slope):
+            raise ValueError("slope must be set for linear_regression calibration")
+        if not is_numeric(intercept):
+            raise ValueError("intercept must be set for linear_regression calibration")
+        px_size = np.nan
+    elif calibration == '2theta':
+        # px -> 2theta[deg] (-> q[nm^-1])
+        if not is_numeric(slope):
+            raise ValueError("slope must be set for 2theta calibration")
+        if not is_numeric(intercept):
+            raise ValueError("intercept must be set for 2theta calibration")
+        px_size = np.nan
+    elif is_numeric(camera_length) and is_numeric(wave_length):
         calibration = 'geometry'
     elif is_numeric(slope) and is_numeric(intercept):
         calibration = 'linear_regression'
+        px_size = np.nan
     else:
-        warnings.warn("no valid calibration parameter given")
+        warnings.warn("no valid calibration parameter given: raw r[px] will be used")
 
     height, width = cv2.imread(files[0], cv2.IMREAD_UNCHANGED).shape
     mask_flg = False
@@ -321,10 +410,24 @@ def series_integrate(src: list[str]|str, *,
     elif calibration == 'linear_regression':
         def _r2q(r) -> np.ndarray:
             return intercept + slope * r
+    elif calibration == '2theta':
+        if is_numeric(wave_length):
+            def _r2q(r) -> np.ndarray:
+                return 4 * np.pi * np.sin(0.5*np.radians(intercept + slope * r)) / wave_length
+        else:
+            def _r2ttheta(r) -> np.ndarray:
+                return intercept + slope * r
+            _r2q = _r2ttheta
+            headers[0] = "2theta[deg]"
     else:
-        def _r2r(r:np.ndarray) -> np.ndarray:
-            return r * px_size
-        _r2q = _r2r
+        if np.isnan(px_size):
+            def _r2q(r) -> np.ndarray:
+                return r
+            headers[0] = "r[px]"
+        else:
+            def _r2q(r) -> np.ndarray:
+                return r * px_size
+            headers[0] = "r[mm]"
 
     r, i = np.array([]), np.array([])
     for file in files:
@@ -350,19 +453,22 @@ def series_integrate(src: list[str]|str, *,
         if verbose:
             bar.update(1)
 
+    if calibration == 'geometry':
+        _cos = np.cos(np.arctan(r*px_size/camera_length))
+        i_all = np.array(i_all) / _cos
     q = _r2q(r)
-    if calibration == 'none':
-        headers[0] = "r[mm]"
-
     arr_out = np.hstack([q.reshape(-1, 1), np.array(i_all).T])
+    arr_out = arr_out[~np.all(np.isnan(arr_out[:,1:]), axis=1)] # remove all nan rows
     savetxt(dst, arr_out, header=headers, overwrite=overwrite)
 
     if mask_flg:
         if mask_src == '':
-            mask_src = dst.replace(".csv", "_mask.tif")
+            mask_src = dst.replace(".tsv", "_mask.tif")
             cv2.imwrite(mask_src, mask)
+        else:
+            mask_src = os.path.relpath(mask_src, os.path.dirname(dst))
 
-    paramfile = dst.replace(".csv", "_params.json")
+    paramfile = dst.replace(".tsv", "_params.json")
 
     if 'v' in flip and 'h' in flip:
         flip = 'vertical and horizontal'
@@ -373,7 +479,8 @@ def series_integrate(src: list[str]|str, *,
     else:
         flip = 'none'
     params = Saxs2dParams(center_x=center_x, center_y=center_y,
-                              calibration_type=calibration, px_size=px_size,
+                              calibration_type=calibration,
+                              px_size=px_size, detecter=detecter,
                               camera_length=camera_length, wave_length=wave_length,
                               slope=slope, intercept=intercept, flip=flip,
                               mask_src=mask_src)
@@ -387,9 +494,103 @@ def series_integrate(src: list[str]|str, *,
 
     return dst
 
+def find_center(src, detecter='', px_size=np.nan, overwrite=True):
+    """インタラクティブにビームセンターを求める
+    画像を表示して3点以上をクリックしてビームセンターを求めてself.__centerを更新し、
+    動径平均を計算して保存する
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.widgets import Button
+    if detecter in DETECTER_PX_SIZES:
+        px_size = np.nan
+    if not os.path.exists(src):
+        raise FileNotFoundError(f"{src} is not found.")
+    im = cv2.imread(src, cv2.IMREAD_UNCHANGED).astype(np.float32)
+    im[im<2] = np.nan
+    im = np.log(im)
+    center = [np.nan, np.nan]
+
+    figsize = (im.shape[1]//200, im.shape[0]//200 + 1)
+    fig = plt.figure(figsize=figsize)
+    confirm_button = Button(fig.add_axes([0.4, 0.025, 0.1, 0.05]), 'Confirm')
+    undo_button = Button(fig.add_axes([0.2, 0.025, 0.1, 0.05]), 'Undo')
+    save_button = Button(fig.add_axes([0.6, 0.025, 0.1, 0.05]), 'Save')
+    if overwrite:
+        save_button.label.set_text('Overwrite')
+    exit_button = Button(fig.add_axes([0.8, 0.025, 0.1, 0.05]), 'Exit')
+    ax = fig.add_subplot(111)
+
+    clicked = []
+    def onclick(event):
+        nonlocal clicked
+        if event.inaxes == ax:
+            if event.xdata is None or event.ydata is None:
+                return
+            x, y = float(event.xdata), float(event.ydata)
+            print(f'({x:.2f}, {y:.2f}) clicked')
+            clicked.append((x, y))
+            return
+
+    def confirm(event):
+        nonlocal center
+        if len(clicked) < 3:
+            warnings.warn("At least 3 points are needed.")
+            return
+        center[0], center[1] = _find_circle_center(clicked)
+        print(f'Center: ({center[0]:.2f}, {center[1]:.2f})')
+        return
+
+    def undo(event):
+        nonlocal clicked
+        if len(clicked) > 0:
+            x, y = clicked[-1]
+            clicked.pop()
+            print(f'({x:.2f}, {y:.2f}) removed')
+            if len(clicked) == 0:
+                print("No point to remove")
+        else:
+            print("No point to remove")
+        return
+
+    def save(event):
+        nonlocal overwrite, center, detecter, px_size
+        if center[0] is np.nan:
+            warnings.warn("Center not found.")
+            return
+        try:
+            dst = file_integrate(src, center_x=center[0], center_y=center[1],
+                                    px_size=px_size, detecter=detecter,
+                                    flip='', overwrite=overwrite)
+            print(f"{dst} saved")
+        except FileExistsError:
+            dst = file_integrate(src, center_x=center[0], center_y=center[1],
+                                    px_size=px_size, detecter=detecter,
+                                    flip='', dst='tmp.tsv', overwrite=True)
+            warnings.warn("File already exists, saved as tmp.tsv")
+        return
+
+    def exit(event):
+        plt.close()
+        return
+
+    cid = fig.canvas.mpl_connect('button_press_event', onclick)
+    confirm_button.on_clicked(confirm)
+    undo_button.on_clicked(undo)
+    save_button.on_clicked(save)
+    exit_button.on_clicked(exit)
+
+    ax.imshow(im, cmap='jet')
+
+    plt.show()
+
+    return
+
 class Mask:
     """値が0の画素を無視するマスク"""
     def __init__(self, shape=(0,0), value:np.ndarray|None=None):
+        """valueで初期化されたマスクを作成する
+        valueが与えられなければshapeで指定されたサイズで1埋めのマスクを作成する
+        """
         if value is not None:
             self.__mask = value.astype(np.uint8)
         else:
@@ -400,9 +601,11 @@ class Mask:
 
     @property
     def value(self, dtype=np.uint8) -> np.ndarray:
+        """格納された値をdtypeで指定した型で返す"""
         return (self.__mask > 0).astype(dtype)
 
     def apply(self, arr:np.ndarray):
+        """arrで与えられた配列にマスクを適用した結果を返す"""
         return arr * (self.value>0).astype(arr.dtype)
 
     @property
@@ -410,27 +613,64 @@ class Mask:
         return self.__mask.shape
 
     def add(self, arr:np.ndarray):
+        """arrがnon zeroの画素をマスクするように変える"""
         self.__mask[arr > 0] = 0
         return
 
     def add_rectangle(self, x: int, y: int, width: int, height: int):
+        """マスクに長方形を加える
+
+        Parameters
+        ----------
+        x : int
+            長方形の左上のx座標
+        y : int
+            長方形の左上のy座標
+        width : int
+        height : int
+        """
         self.__mask[y:y+height, x:x+width] = 0
         return
 
     def remove_rectangle(self, x: int, y: int, width: int, height: int):
+        """マスクから長方形を取り除く
+
+        Parameters
+        ----------
+        x : int
+            長方形の左上のx座標
+        y : int
+            長方形の左上のy座標
+        width : int
+        height : int
+        """
+
         self.__mask[y:y+height, x:x+width] = 1
         return
 
     def save(self, file: str='mask.pbm'):
+        """マスクをファイルに保存する"""
         cv2.imwrite(file, self.__mask)
         return
 
     @classmethod
-    def read(cls, src: str):
+    def read(cls, src: str)->'Mask':
+        """ファイルからマスクを読み込む"""
         return cls(value=_readmask(src))
 
 class Saxs2d:
-    def __init__(self, i: np.ndarray, px2q: float, center: ArrayLike):
+    """SAXSの2次元データを扱うクラス
+
+    Attributes
+    ----------
+    __i : np.ndarray
+        散乱強度の2次元配列
+    __px2q : float
+        1pxあたりのqの変化量[nm^-1/px]
+    __center : Tuple[float, float]
+        ビームセンターの座標(x,y)
+    """
+    def __init__(self, i: np.ndarray, px2q: float, center: Tuple[float, float]):
         self.__i = i  # floatの2次元配列 欠損値はnp.nan
         self.__px2q = px2q  # nm^-1/px
         self.__center = (center[0], center[1])  # (x,y)
@@ -451,6 +691,23 @@ class Saxs2d:
     def radial_average(
         self, q_min: float = 0, q_max: float = np.inf
     ) -> Tuple[np.ndarray, np.ndarray]:
+        """q_minからq_maxまでの範囲で動径平均を計算する
+        インスタンスに格納された変数を使ってnumba.jitを使用せずに動径平均を計算する
+
+        Parameters
+        ----------
+        q_min : float
+            動径平均を計算する最小のq値[1/nm]
+        q_max : float
+            動径平均を計算する最大のq値[1/nm]
+
+        Returns
+        -------
+        i : np.ndarray
+            散乱強度の動径平均の配列
+        q : np.ndarray
+            qの配列
+        """
         rx = np.arange(self.__i.shape[1]) - self.__center[0]
         ry = np.arange(self.__i.shape[0]) - self.__center[1]
         rxx, ryy = np.meshgrid(rx, ry)
@@ -469,7 +726,3 @@ class Saxs2d:
 
         q_bin = r_bin * self.__px2q
         return i, (q_bin[:-1] + q_bin[1:]) / 2
-
-    def rotate(self, angle: float):
-        """画像を回転する"""
-        raise NotImplementedError

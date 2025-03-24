@@ -38,7 +38,7 @@ def loadtxt(src, *, delimiter=(None, ','), skiprows=-1, comments='#', **kwargs):
             pass
     raise ValueError("delimiter is not correct")
 
-def savetxt(fname, X, header:str|tuple|list='', *, delimiter=",", fmt="%.6e", overwrite=False, **kwargs):
+def savetxt(fname, X, header:str|tuple|list='', *, delimiter="\t", fmt="%.6e", overwrite=False, **kwargs):
     """numpy.savetxtのラッパー
 
     Parameters
@@ -68,7 +68,7 @@ def _format_for_json(data, special_float_to=None):
             data[key] = _format_for_json(data[key], special_float_to)
         elif isinstance(data[key], float) and not np.isfinite(data[key]):
             data[key] = special_float_to
-        elif hasattr(data[key], "__len__") and isinstance(data[key][0], float):
+        elif hasattr(data[key], "__len__") and len(data[key]) > 0 and isinstance(data[key][0], float):
             data[key] = [special_float_to if not np.isfinite(x) else x for x in data[key]]
     return data
 
